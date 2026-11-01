@@ -1,1 +1,2 @@
-# QuakeScope
+こちらはchatgptで作りました。
+chatgpt.com
