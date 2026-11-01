@@ -1,0 +1,917 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>世界地震モニタ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#050608;color:#eaf5ff;font-family:Meiryo,"Yu Gothic",sans-serif}
+header{padding:15px 20px;background:#07111e;border-bottom:2px solid #159de0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+h1{margin:0;font-size:23px}
+.sub{font-size:11px;color:#9bc6e3;margin-top:5px}
+#clock{font-size:16px;font-variant-numeric:tabular-nums}
+.status{font-size:11px;color:#ffd166}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:12px;padding:12px}
+.map-wrap{position:relative}
+#map{height:calc(100vh - 125px);min-height:520px;width:100%;border:1px solid #285273;border-radius:8px;background:#030609}
+.leaflet-container{background:#030609}
+.side{display:flex;flex-direction:column;gap:10px}
+.panel{background:#0b1c2e;border:1px solid #285273;border-radius:8px;padding:13px}
+.panel h2{font-size:14px;color:#a8dcff;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #24445f}
+.info{font-size:12px;line-height:1.9}
+.note{font-size:10px;color:#a9bfd2;line-height:1.7}
+#japanList,#overseasList{max-height:260px;overflow-y:auto}
+.quake-item{padding:9px 5px;border-bottom:1px solid #24445f;font-size:11px;line-height:1.7;cursor:pointer}
+.quake-item:hover{background:#142e43}
+.quake-item.selected{background:#17415d;border-left:3px solid #39bdf8}
+.mag{display:inline-block;min-width:43px;text-align:center;padding:2px 5px;border-radius:3px;background:#a52b35;color:white;font-weight:bold;margin-right:5px}
+.scale{display:inline-block;padding:2px 6px;border-radius:3px;background:#e5a100;color:#171717;font-weight:bold;margin-right:5px}
+.tsunami-status{font-size:13px;font-weight:bold;padding:8px;border-radius:5px}
+.tsunami-none{background:#173d31;color:#8df0bb}
+.tsunami-watch{background:#544716;color:#ffe17a}
+.tsunami-warning{background:#633b16;color:#ffc078}
+.tsunami-major{background:#681c32;color:#ff9db8}
+.leaflet-tooltip{background:#101c28;color:#eaf5ff;border:1px solid #547087}
+.municipality-tooltip{background:#101c28;color:#eaf5ff;border:1px solid #547087;border-radius:5px;padding:5px 8px;font-size:12px}
+.epicenter-x{color:#ff1d35;font-size:34px;font-weight:900;line-height:30px;text-align:center;text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff,0 0 5px #000}
+
+/* 左側の震度・津波カラーパネル */
+.map-legend{
+ position:absolute;z-index:800;top:14px;left:14px;width:112px;
+ max-height:calc(100% - 28px);overflow-y:auto;padding:10px 8px;
+ border:1px solid #52728b;border-radius:10px;
+ background:rgba(5,15,27,.91);box-shadow:0 4px 18px #0009;
+ backdrop-filter:blur(8px);scrollbar-width:thin;
+}
+.legend-title{font-size:11px;font-weight:bold;color:#b9e3ff;text-align:center;margin:1px 0 9px}
+.legend-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 3px}
+.legend-item{min-width:0;text-align:center;font-size:10px;color:#e8f3ff;line-height:1.35}
+.legend-circle{display:block;width:21px;height:21px;border-radius:50%;margin:0 auto 4px;border:1px solid #ffffffaa;box-shadow:0 1px 5px #0009}
+.legend-name{display:block;color:#a9c6dc;font-size:9px;margin-top:2px}
+.legend-divider{height:1px;background:#466078;margin:10px 0}
+.legend-subtitle{font-size:10px;text-align:center;color:#b9e3ff;margin:0 0 8px;font-weight:bold}
+.tsunami-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 3px}
+@media(max-width:900px){
+ .layout{grid-template-columns:1fr}
+ #map{height:65vh;min-height:420px}
+ .side{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:560px){
+ .side{grid-template-columns:1fr}
+ h1{font-size:19px}
+ .map-legend{width:100px;left:8px;top:8px;padding:8px 5px}
+ .legend-grid{gap:8px 2px}
+}
+</style>
+</head>
+<body>
+
+<header>
+ <div>
+  <h1>〰 世界地震モニタ</h1>
+  <div class="sub">GLOBAL EARTHQUAKE MONITOR</div>
+ </div>
+ <div id="clock">--:--:--</div>
+ <div class="status">● 地震情報 接続中</div>
+</header>
+
+<div class="layout">
+ <main class="map-wrap">
+  <div id="map"></div>
+
+  <div class="map-legend">
+   <div class="legend-title">震度の色分け</div>
+   <div class="legend-grid">
+    <div class="legend-item"><span class="legend-circle" style="background:#64d9ff"></span>震度1<span class="legend-name">水色</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#a5e89a"></span>震度2<span class="legend-name">薄緑</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ffe45c"></span>震度3<span class="legend-name">黄色</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ff9b36"></span>震度4<span class="legend-name">オレンジ</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ffaaaa"></span>5弱<span class="legend-name">薄赤</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ef3038"></span>5強<span class="legend-name">赤</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#a90020"></span>6弱<span class="legend-name">濃い赤</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#a52a82"></span>6強<span class="legend-name">赤紫</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#7926c9"></span>震度7<span class="legend-name">紫</span></div>
+   </div>
+
+   <div class="legend-divider"></div>
+   <div class="legend-subtitle">津波情報</div>
+   <div class="tsunami-grid">
+    <div class="legend-item"><span class="legend-circle" style="background:#64d9ff"></span>海面変動<span class="legend-name">水色</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ffe45c"></span>注意報<span class="legend-name">黄色</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#ef3038"></span>津波警報<span class="legend-name">赤</span></div>
+    <div class="legend-item"><span class="legend-circle" style="background:#7926c9"></span>大津波<span class="legend-name">紫</span></div>
+   </div>
+  </div>
+ </main>
+
+ <aside class="side">
+  <section class="panel">
+   <h2>地震情報</h2>
+   <div class="info" id="quakeStatus">情報を取得しています…</div>
+   <p class="note">日本：震度1以上の地震<br>海外：M6.5以上の地震<br>地震一覧を選ぶと地図に震源地と観測震度を表示します。</p>
+  </section>
+
+  <section class="panel">
+   <h2>日本の地震（過去20件）</h2>
+   <div id="japanList" class="info">読み込み中…</div>
+  </section>
+
+  <section class="panel">
+   <h2>海外の地震（M6.5以上）</h2>
+   <div id="overseasList" class="info">読み込み中…</div>
+  </section>
+
+  <section class="panel">
+   <h2>津波情報</h2>
+   <div id="tsunamiStatus" class="tsunami-status tsunami-none">津波情報を取得しています…</div>
+   <div id="tsunamiDetail" class="note"></div>
+  </section>
+
+  <section class="panel">
+   <h2>地図の境界線</h2>
+   <div class="info">県境：通常の線</div>
+   <div class="info">市区町村境：半透明の細い線</div>
+   <p class="note">細かい区域境界は、対応する区域データが必要です。</p>
+  </section>
+ </aside>
+</div>
+
+<footer style="padding:12px 18px;background:#081727;color:#a8bfd2;font-size:10px;line-height:1.8">
+ 地図：世界各国のGeoJSON境界データ<br>
+ 都道府県境界：日本の行政区域GeoJSONデータ<br>
+ 市区町村境界：市区町村GeoJSONデータ<br>
+ 日本の地震・津波：P2P地震情報 JSON API v2<br>
+ 海外の地震：USGS Earthquake GeoJSON Feed<br>
+ 注意：防災・避難の判断には気象庁・自治体の公式発表を確認してください。
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+
+// ======================================
+// 地図の基本設定
+// ======================================
+const map=L.map("map",{
+ zoomControl:true,
+ minZoom:2,
+ maxZoom:11,
+ worldCopyJump:true,
+ preferCanvas:true
+}).setView([25,135],3);
+
+// 境界線を震度の色より上に表示するためのレイヤー順
+map.createPane("municipalityPane");
+map.getPane("municipalityPane").style.zIndex=430;
+map.getPane("municipalityPane").style.pointerEvents="none";
+
+map.createPane("prefecturePane");
+map.getPane("prefecturePane").style.zIndex=440;
+map.getPane("prefecturePane").style.pointerEvents="none";
+
+map.createPane("selectedPane");
+map.getPane("selectedPane").style.zIndex=420;
+
+// ======================================
+// 世界地図
+// ======================================
+const worldLayer=L.geoJSON(null,{
+ style:function(feature){
+  const p=feature.properties||{};
+  const japan=p.ADMIN==="Japan"||p.name==="Japan"||p.NAME==="Japan";
+  if(japan)return {color:"#d0d8e0",weight:1,opacity:0,fillOpacity:0};
+  return {color:"#525b66",weight:.65,opacity:.85,fillColor:"#777f89",fillOpacity:.28};
+ },
+ onEachFeature:function(feature,layer){
+  const p=feature.properties||{};
+  const japan=p.ADMIN==="Japan"||p.name==="Japan"||p.NAME==="Japan";
+  if(!japan)layer.bindTooltip(p.ADMIN||p.name||p.NAME||"国・地域",{sticky:true});
+ }
+}).addTo(map);
+
+// ======================================
+// 都道府県境界
+// ======================================
+const prefectureLayer=L.geoJSON(null,{
+ pane:"prefecturePane",
+ style:{
+  color:"#d9e8f5",
+  weight:1.35,
+  opacity:1,
+  fillOpacity:0
+ },
+ onEachFeature:function(feature,layer){
+  const p=feature.properties||{};
+  const name=p.nam_ja||p.name_ja||p.name||p.N03_001||"都道府県";
+  layer.bindTooltip(name,{sticky:true});
+ }
+}).addTo(map);
+
+// ======================================
+// 市区町村境界
+// ======================================
+const municipalityLayer=L.geoJSON(null,{
+ pane:"municipalityPane",
+ style:{
+  color:"#9dc6df",
+  weight:.65,
+  opacity:.48,
+  fillOpacity:0
+ },
+ interactive:false
+}).addTo(map);
+
+const quakeLayer=L.layerGroup().addTo(map);
+const selectedLayer=L.layerGroup().addTo(map);
+
+let prefectureFeatures=[];
+let municipalityFeatures=[];
+let municipalityIndex=new Map();
+let selectedItem=null;
+let japanQuakes=[];
+let overseasQuakes=[];
+let municipalityLoading=false;
+let municipalityLoaded=false;
+
+// ======================================
+// 共通関数
+// ======================================
+function escapeHTML(value){
+ return String(value??"").replace(/[&<>"']/g,c=>({
+  "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+ }[c]));
+}
+
+function validNumber(value){
+ if(value===null||value===undefined||value==="")return null;
+ const n=Number(value);
+ return Number.isFinite(n)?n:null;
+}
+
+function formatTime(value){
+ if(!value)return "時刻不明";
+ const d=new Date(value);
+ if(isNaN(d.getTime()))return String(value);
+ return d.toLocaleString("ja-JP",{
+  month:"2-digit",day:"2-digit",
+  hour:"2-digit",minute:"2-digit"
+ });
+}
+
+function formatMagnitude(value){
+ const n=validNumber(value);
+ return n!==null&&n>=0?"M"+n.toFixed(1):"情報なし";
+}
+
+function formatDepth(value){
+ const n=validNumber(value);
+ if(n===null||n<0)return "情報なし";
+ if(n===0)return "ごく浅い";
+ return "約"+Math.round(n)+" km";
+}
+
+function scaleText(scale){
+ const n=Number(scale);
+ const labels={
+  10:"1",20:"2",30:"3",40:"4",
+  45:"5弱",46:"5弱以上",50:"5強",
+  55:"6弱",60:"6強",70:"7"
+ };
+ return labels[n]||"不明";
+}
+
+function scaleColor(scale){
+ const n=Number(scale);
+ if(n>=70)return "#7926c9";
+ if(n>=60)return "#a52a82";
+ if(n>=55)return "#a90020";
+ if(n>=50)return "#ef3038";
+ if(n>=45)return "#ffaaaa";
+ if(n>=40)return "#ff9b36";
+ if(n>=30)return "#ffe45c";
+ if(n>=20)return "#a5e89a";
+ if(n>=10)return "#64d9ff";
+ return "#ffffff";
+}
+
+function normalizeArray(data){
+ if(Array.isArray(data))return data;
+ if(Array.isArray(data?.items))return data.items;
+ if(Array.isArray(data?.earthquakes))return data.earthquakes;
+ return [];
+}
+
+// 動的な地震情報はキャッシュしない。
+// 大きな固定地図データはブラウザキャッシュを利用する。
+async function getJSON(url,cacheMode="no-store"){
+ const response=await fetch(url,{cache:cacheMode});
+ if(!response.ok)throw new Error("HTTP "+response.status);
+ return await response.json();
+}
+
+function normalizeName(name){
+ return String(name||"")
+  .replace(/[都道府県]/g,"")
+  .replace(/[ヶヵ]/g,"ケ")
+  .replace(/[\s　]/g,"")
+  .replace(/大字|字/g,"");
+}
+
+// ======================================
+// 都道府県名・市区町村名の検索
+// ======================================
+function getPrefectureCenter(prefName){
+ const target=normalizeName(prefName);
+ if(!target)return null;
+
+ for(const feature of prefectureFeatures){
+  const p=feature.properties||{};
+  const names=[
+   p.nam_ja,p.name_ja,p.name,p.N03_001,
+   p.nam,p.pref,p.prefecture
+  ].filter(Boolean);
+
+  if(names.some(n=>normalizeName(n)===target)){
+   const bounds=L.geoJSON(feature).getBounds();
+   if(bounds.isValid())return bounds.getCenter();
+  }
+ }
+ return null;
+}
+
+function getMunicipalityName(feature){
+ const p=feature.properties||{};
+ return p.N03_004||p.N03_003||p.name||
+  p.NAME_2||p.city||p.municipality||"";
+}
+
+function getMunicipalityPref(feature){
+ const p=feature.properties||{};
+ return p.N03_001||p.pref||p.prefecture||"";
+}
+
+// 市区町村データを読み込んだときに検索用の索引を作る。
+// 毎回すべての市区町村を最初から検索しないため軽くなる。
+function buildMunicipalityIndex(){
+ municipalityIndex.clear();
+
+ municipalityFeatures.forEach(feature=>{
+  const pref=normalizeName(getMunicipalityPref(feature));
+  const city=normalizeName(getMunicipalityName(feature));
+
+  if(!pref||!city)return;
+
+  const key=pref+"|"+city;
+  if(!municipalityIndex.has(key)){
+   municipalityIndex.set(key,feature);
+  }
+ });
+}
+
+function findMunicipality(point){
+ if(!municipalityLoaded||!point)return null;
+ if(point.isArea===true)return null;
+
+ const addr=normalizeName(point.addr);
+ const pref=normalizeName(point.pref);
+ if(!addr||!pref)return null;
+
+ // まず完全一致で高速検索
+ const exact=municipalityIndex.get(pref+"|"+addr);
+ if(exact)return exact;
+
+ // 完全一致しない場合だけ部分一致で探す
+ for(const [key,feature] of municipalityIndex){
+  if(!key.startsWith(pref+"|"))continue;
+
+  const city=key.substring(pref.length+1);
+  if(city&&(addr.includes(city)||city.includes(addr))){
+   return feature;
+  }
+ }
+
+ return null;
+}
+
+// ======================================
+// 選択した地震を地図に表示
+// ======================================
+function selectQuake(item){
+ selectedItem=item;
+ selectedLayer.clearLayers();
+
+ const lat=validNumber(item.lat);
+ const lon=validNumber(item.lon);
+
+ // 震源地の赤い×印
+ if(lat!==null&&lon!==null&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180){
+  map.setView([lat,lon],Math.max(map.getZoom(),5));
+
+  const epicenter=L.marker([lat,lon],{
+   icon:L.divIcon({
+    className:"",
+    html:'<div class="epicenter-x">×</div>',
+    iconSize:[30,30],
+    iconAnchor:[15,15]
+   }),
+   keyboard:false
+  }).addTo(selectedLayer);
+
+  epicenter.bindPopup(
+   `<b>${escapeHTML(item.place)}</b><br>`+
+   `マグニチュード：${formatMagnitude(item.mag)}<br>`+
+   `震源の深さ：${formatDepth(item.depth)}<br>`+
+   `発生時刻：${formatTime(item.time)}`
+  ).openPopup();
+ }
+
+ // 同じ観測地域のデータをまとめる
+ const grouped=new Map();
+
+ (item.points||[]).forEach(point=>{
+  const pref=String(point.pref||"").trim();
+  const scale=Number(point.scale);
+
+  if(!pref||!Number.isFinite(scale)||scale<10)return;
+
+  const key=pref+"|"+String(point.addr||"");
+
+  if(!grouped.has(key)){
+   grouped.set(key,{
+    pref,
+    addr:point.addr||"観測地域",
+    scale,
+    point
+   });
+  }else{
+   grouped.get(key).scale=Math.max(
+    grouped.get(key).scale,
+    scale
+   );
+  }
+ });
+
+ // 市区町村ごとの震度を表示
+ grouped.forEach(group=>{
+  const feature=findMunicipality(group.point);
+  if(!feature)return;
+
+  const cityName=getMunicipalityName(feature)||group.addr;
+  const intensity="震度"+scaleText(group.scale);
+  const color=scaleColor(group.scale);
+
+  L.geoJSON(feature,{
+   pane:"selectedPane",
+   style:{
+    color:color,
+    weight:1.1,
+    opacity:.95,
+    fillColor:color,
+    fillOpacity:.48
+   },
+   interactive:true,
+   onEachFeature:function(f,layer){
+
+    // マウスを乗せると市区町村名と震度
+    layer.bindTooltip(
+     `<b>${escapeHTML(cityName)}</b><br>`+
+     `<strong style="font-size:14px;color:${color}">${intensity}</strong>`,
+     {
+      sticky:true,
+      direction:"top",
+      opacity:.98,
+      className:"municipality-tooltip"
+     }
+    );
+
+    // クリック・スマホのタップでも表示
+    layer.bindPopup(
+     `<div style="min-width:120px">`+
+     `<b>${escapeHTML(group.pref)} ${escapeHTML(cityName)}</b><br>`+
+     `<strong style="font-size:16px;color:${color}">${intensity}</strong><br>`+
+     `<small>観測された震度</small>`+
+     `</div>`
+    );
+   }
+  }).addTo(selectedLayer);
+ });
+
+ // 市区町村・県境の線を震度の色より上に戻す
+ municipalityLayer.bringToFront();
+ prefectureLayer.bringToFront();
+
+ // 一覧の選択状態
+ document.querySelectorAll(".quake-item").forEach(el=>{
+  el.classList.toggle(
+   "selected",
+   el.dataset.id===String(item.id)
+  );
+ });
+
+ // 市区町村データの取得がまだ終わっていなければ案内
+ if(!municipalityLoaded&&item.points?.length){
+  document.getElementById("quakeStatus").innerHTML=
+   `市区町村境界データを読み込み中です。<br>`+
+   `読み込み後に地震をもう一度選択してください。`;
+ }
+}
+
+// ======================================
+// 地震一覧の表示
+// ======================================
+function makeQuakeItem(item,isJapan){
+ const el=document.createElement("div");
+ el.className="quake-item";
+ el.dataset.id=item.id;
+
+ if(isJapan){
+  el.innerHTML=
+   `<span class="scale">震度${scaleText(item.maxScale)}</span>`+
+   `${escapeHTML(item.place)}<br>`+
+   `<span style="color:#9bb2c5">`+
+   `${formatTime(item.time)}　${formatMagnitude(item.mag)}　深さ：${formatDepth(item.depth)}`+
+   `</span>`;
+ }else{
+  el.innerHTML=
+   `<span class="mag">${formatMagnitude(item.mag)}</span>`+
+   `${escapeHTML(item.place)}<br>`+
+   `<span style="color:#9bb2c5">`+
+   `${formatTime(item.time)}　深さ：${formatDepth(item.depth)}`+
+   `</span>`;
+ }
+
+ el.addEventListener("click",()=>selectQuake(item));
+ return el;
+}
+
+// ======================================
+// 日本の地震情報
+// ======================================
+async function updateJapanQuakes(){
+ const list=document.getElementById("japanList");
+ list.textContent="取得中…";
+
+ try{
+  const data=await getJSON(
+   "https://api.p2pquake.net/v2/history?codes=551&limit=100"
+  );
+
+  const all=normalizeArray(data);
+
+  const quakes=all.filter(q=>{
+   if(Number(q.code)!==551||!q.earthquake||q.cancelled===true)return false;
+
+   const e=q.earthquake;
+   const pts=Array.isArray(q.points)
+    ?q.points
+    :(Array.isArray(e.points)?e.points:[]);
+
+   return Number(e.maxScale)>=10||
+    pts.some(p=>Number(p.scale)>=10);
+  }).slice(0,20);
+
+  list.innerHTML="";
+  japanQuakes=[];
+
+  quakes.forEach((q,index)=>{
+   const e=q.earthquake||{};
+   const h=e.hypocenter||{};
+   const rawPoints=Array.isArray(q.points)
+    ?q.points
+    :(Array.isArray(e.points)?e.points:[]);
+
+   const points=rawPoints.filter(p=>Number(p.scale)>=10);
+
+   const item={
+    id:q.id||e.time||("japan-"+index),
+    place:h.name||h.reduceName||"震源地情報なし",
+    lat:validNumber(h.latitude),
+    lon:validNumber(h.longitude),
+    depth:validNumber(h.depth),
+    mag:validNumber(h.magnitude),
+    time:e.time||q.time,
+    maxScale:Number(e.maxScale)>0
+     ?Number(e.maxScale)
+     :Math.max(0,...points.map(p=>Number(p.scale)||0)),
+    points:points.map(p=>({
+     pref:p.pref||"",
+     addr:p.addr||"",
+     scale:p.scale,
+     isArea:p.isArea===true
+    }))
+   };
+
+   japanQuakes.push(item);
+   list.appendChild(makeQuakeItem(item,true));
+  });
+
+  if(!quakes.length){
+   list.textContent="現在、震度1以上の地震情報はありません。";
+  }
+
+  return quakes.length;
+
+ }catch(error){
+  console.error("日本の地震情報",error);
+  list.textContent="日本の地震情報を取得できません。通信状態を確認してください。";
+  return 0;
+ }
+}
+
+// ======================================
+// 海外の地震（USGS）
+// ======================================
+async function updateOverseasQuakes(){
+ const list=document.getElementById("overseasList");
+ list.textContent="取得中…";
+
+ try{
+  const data=await getJSON(
+   "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+  );
+
+  const quakes=(data.features||[]).filter(f=>{
+   const c=f.geometry?.coordinates;
+   const mag=Number(f.properties?.mag);
+
+   if(!c||c.length<2||!Number.isFinite(mag)||mag<6.5){
+    return false;
+   }
+
+   return !(c[1]>=20&&c[1]<=46&&c[0]>=122&&c[0]<=154);
+  }).sort((a,b)=>(b.properties.time||0)-(a.properties.time||0));
+
+  list.innerHTML="";
+  overseasQuakes=[];
+
+  quakes.forEach(f=>{
+   const c=f.geometry.coordinates;
+   const p=f.properties;
+
+   const item={
+    id:f.id,
+    place:p.place||"震源地情報なし",
+    lat:Number(c[1]),
+    lon:Number(c[0]),
+    depth:validNumber(c[2]),
+    mag:validNumber(p.mag),
+    time:p.time,
+    url:p.url,
+    points:[]
+   };
+
+   overseasQuakes.push(item);
+   list.appendChild(makeQuakeItem(item,false));
+  });
+
+  if(!quakes.length){
+   list.textContent="現在、M6.5以上の海外地震はありません。";
+  }
+
+  return quakes.length;
+
+ }catch(error){
+  console.error("海外の地震情報",error);
+  list.textContent="海外の地震情報を取得できません。";
+  return 0;
+ }
+}
+
+// ======================================
+// 津波情報
+// ======================================
+function tsunamiGradeText(grade){
+ const s=String(grade||"").toLowerCase();
+
+ if(s.includes("major")||s.includes("大津波"))return "大津波警報";
+ if(s.includes("warning")||s.includes("警報"))return "津波警報";
+ if(s.includes("watch")||s.includes("注意報"))return "津波注意報";
+ if(s.includes("海面")||s.includes("変動"))return "若干の海面変動";
+ if(s.includes("none")||s.includes("心配なし"))return "津波の心配なし";
+
+ return "";
+}
+
+async function updateTsunami(){
+ const box=document.getElementById("tsunamiStatus");
+ const detail=document.getElementById("tsunamiDetail");
+
+ try{
+  const data=await getJSON(
+   "https://api.p2pquake.net/v2/jma/tsunami?limit=10&order=-1"
+  );
+
+  const items=normalizeArray(data).filter(x=>x.code===552&&!x.cancelled);
+
+  if(!items.length){
+   box.className="tsunami-status tsunami-none";
+   box.textContent="最新の津波情報を確認できません";
+   detail.textContent="情報の配信状況を確認してください。";
+   return;
+  }
+
+  const latest=items[0];
+  const areas=latest.areas||[];
+  const grades=areas.map(a=>tsunamiGradeText(a.grade)).filter(Boolean);
+
+  let main="津波情報を確認中";
+
+  if(grades.includes("大津波警報"))main="大津波警報";
+  else if(grades.includes("津波警報"))main="津波警報";
+  else if(grades.includes("津波注意報"))main="津波注意報";
+  else if(grades.includes("若干の海面変動"))main="若干の海面変動";
+  else if(grades.includes("津波の心配なし"))main="津波の心配なし";
+
+  box.className="tsunami-status "+
+   (main==="大津波警報"?"tsunami-major":
+   main==="津波警報"?"tsunami-warning":
+   main==="津波注意報"?"tsunami-watch":"tsunami-none");
+
+  box.textContent=main;
+
+  const names=areas.map(a=>a.name).filter(Boolean);
+
+  detail.textContent=
+   "発表時刻："+formatTime(latest.time)+" "+
+   (names.length?"対象地域："+names.join("、"):"");
+
+ }catch(error){
+  console.error("津波情報",error);
+  box.className="tsunami-status tsunami-none";
+  box.textContent="津波情報を取得できません";
+  detail.textContent="通信エラーのため、公式発表を確認してください。";
+ }
+}
+
+// ======================================
+// 世界地図データ
+// ======================================
+async function loadWorldMap(){
+ try{
+  const data=await getJSON(
+   "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson",
+   "force-cache"
+  );
+
+  worldLayer.addData(data);
+
+ }catch(error){
+  console.error("世界地図",error);
+  document.getElementById("quakeStatus").textContent=
+   "世界地図データを取得できません。";
+ }
+}
+
+// ======================================
+// 都道府県境界データ
+// ======================================
+async function loadPrefectures(){
+ try{
+  const data=await getJSON(
+   "https://raw.githubusercontent.com/dataofjapan/land/master/japan.geojson",
+   "force-cache"
+  );
+
+  prefectureLayer.addData(data);
+  prefectureFeatures=data.features||[];
+
+ }catch(error){
+  console.error("都道府県境界",error);
+  document.getElementById("quakeStatus").textContent=
+   "都道府県境界データを取得できません。";
+ }
+}
+
+// ======================================
+// 市区町村境界データ
+// 地図・地震情報を先に表示してから取得する
+// ======================================
+async function loadMunicipalities(){
+ if(municipalityLoading||municipalityLoaded)return;
+
+ municipalityLoading=true;
+
+ try{
+  const url=
+   "https://raw.githubusercontent.com/smartnews-smri/japan-topography/main/data/municipality/geojson/s0001/N03-21_210101.json";
+
+  const data=await getJSON(url,"force-cache");
+
+  municipalityFeatures=Array.isArray(data.features)
+   ?data.features
+   :[];
+
+  // 市区町村境界を地図に追加
+  municipalityLayer.clearLayers();
+  municipalityLayer.addData(data);
+
+  // 検索用の索引を作成
+  buildMunicipalityIndex();
+
+  municipalityLoaded=true;
+
+  // 震度を選択済みなら、読み込み後に再選択できるようにする
+  if(selectedItem){
+   selectQuake(selectedItem);
+  }
+
+  console.info(
+   "市区町村境界データ読み込み完了:",
+   municipalityFeatures.length
+  );
+
+ }catch(error){
+  console.warn("市区町村境界データを読み込めませんでした。",error);
+  municipalityLoaded=false;
+
+ }finally{
+  municipalityLoading=false;
+ }
+}
+
+// ======================================
+// 地震情報の更新
+// ======================================
+async function updateAll(){
+ document.getElementById("quakeStatus").textContent=
+  "地震情報を取得しています…";
+
+ const [japanCount,overseasCount]=await Promise.all([
+  updateJapanQuakes(),
+  updateOverseasQuakes()
+ ]);
+
+ document.getElementById("quakeStatus").innerHTML=
+  `日本（震度1以上）：<b>${japanCount}件</b><br>`+
+  `海外（M6.5以上）：<b>${overseasCount}件</b><br>`+
+  `合計：<b>${japanCount+overseasCount}件</b><br>`+
+  `最終更新：${new Date().toLocaleTimeString("ja-JP")}`;
+
+ // 選択中の地震を更新後のデータに合わせる
+ if(selectedItem){
+  const updated=[
+   ...japanQuakes,
+   ...overseasQuakes
+  ].find(q=>q.id===selectedItem.id);
+
+  if(updated){
+   selectedItem=updated;
+   selectQuake(updated);
+  }else{
+   selectedItem=null;
+   selectedLayer.clearLayers();
+  }
+ }
+}
+
+// ======================================
+// 時計
+// ======================================
+function updateClock(){
+ document.getElementById("clock").textContent=
+  new Date().toLocaleString("ja-JP",{
+   year:"numeric",
+   month:"2-digit",
+   day:"2-digit",
+   hour:"2-digit",
+   minute:"2-digit",
+   second:"2-digit",
+   hour12:false
+  });
+}
+
+// ======================================
+// 起動
+// ======================================
+async function start(){
+ updateClock();
+ setInterval(updateClock,1000);
+
+ // 最初は地図と都道府県だけ読み込む
+ await Promise.all([
+  loadWorldMap(),
+  loadPrefectures()
+ ]);
+
+ // 地震情報と津波情報を先に表示する
+ await Promise.all([
+  updateAll(),
+  updateTsunami()
+ ]);
+
+ // 市区町村データは画面表示後にバックグラウンドで取得
+ // これにより最初の画面表示を待たせない
+ loadMunicipalities();
+
+ // 5分ごとに地震情報を更新
+ setInterval(updateAll,5*60*1000);
+ setInterval(updateTsunami,5*60*1000);
+}
+
+start();
+</script>
+</body>
+</html>
